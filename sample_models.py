@@ -2,6 +2,7 @@ from keras import backend as K
 from keras.models import Model
 from keras.layers import (BatchNormalization, Conv1D, Dense, Input, 
     TimeDistributed, Activation, Bidirectional, SimpleRNN, GRU, LSTM)
+from keras.layers.convolutional import MaxPooling1D
 
 def simple_rnn_model(input_dim, output_dim=29):
     """ Build a recurrent network for speech 
@@ -98,12 +99,14 @@ def deep_rnn_model(input_dim, units, recur_layers, output_dim=29):
     # Main acoustic input
     input_data = Input(name='the_input', shape=(None, input_dim))
     # TODO: Add recurrent layers, each with batch normalization
-    for i in range(0, recur_layers):
-        simp_rnn = GRU(units, activation='relu',
+    simp_rnn = GRU(units, activation='relu',
             return_sequences=True, implementation=2, name='rnn')(input_data)
-        bn_rnn = BatchNormalization(name='bn_simp_rnn')(simp_rnn)
+    for i in range(0, recur_layers):
+        bn_rnn = BatchNormalization(name='bn_simp_rnn'+str(i))(simp_rnn)
         # TODO: Add a TimeDistributed(Dense(output_dim)) layer
         time_dense = TimeDistributed(Dense(output_dim))(bn_rnn)
+        simp_rnn = GRU(units, activation='relu',
+            return_sequences=True, implementation=2, name='rnn'+str(i))(time_dense)
     # Add softmax activation layer
     y_pred = Activation('softmax', name='softmax')(time_dense)
     # Specify the model
@@ -130,32 +133,45 @@ def bidirectional_rnn_model(input_dim, units, output_dim=29):
     print(model.summary())
     return model
 
-def final_model(input_dim, units, output_dim=29):
+def final_model(input_dim, units, output_dim, filters, kernel_size, conv_stride, conv_border_mode, activation):
     """ Build a deep network for speech 
     """
     # Main acoustic input
     input_data = Input(name='the_input', shape=(None, input_dim))
+
     # TODO: Specify the layers in your network
+    # Add convolutional layer
+    conv_1d = Conv1D(filters, kernel_size, 
+                     strides=conv_stride, 
+                     padding=conv_border_mode,
+                     activation=activation,
+                     name='conv1d')(input_data)
     
-    # Add bidirectional recurrent layer
-    bidir_rnn = Bidirectional(LSTM(units, activation='relu', implementation=2,
-                                   return_sequences=True, dropout=0.8))(input_data)
+    # Add batch normalization
+    bn_cnn = BatchNormalization(name='bn_conv_1d')(conv_1d)
     
-    # Add a TimeDistributed(Dense(output_dim)) layer
-    time_dense = TimeDistributed(Dense(output_dim))(bidir_rnn)
+    # TODO: Add bidirectional recurrent layer
+    #bidir_rnn = Bidirectional(GRU(units, activation='relu',
+    #        return_sequences=True, implementation=2, name='rnn'))(max_pooling)
+    bidir_lstm = Bidirectional(LSTM(units, activation='tanh',
+            return_sequences=True, implementation=2, dropout=0.3, recurrent_dropout=0.6, name='bidir_lstm'))(bn_cnn)
     
-    # Add bidirectional recurrent layer
-    bidir_rnn2 = Bidirectional(LSTM(units, activation='relu', implementation=2,
-                                   return_sequences=True, dropout=0.2))(time_dense)
+    # TODO: Add a TimeDistributed(Dense(output_dim)) layer
+    time_dense = TimeDistributed(Dense(output_dim))(bidir_lstm)
     
-    # Add a TimeDistributed(Dense(output_dim)) layer
-    time_dense2 = TimeDistributed(Dense(output_dim))(bidir_rnn2)
+    # TODO: Add bidirectional recurrent layer
+    bidir_lstm2 = Bidirectional(LSTM(units, activation='tanh',
+            return_sequences=True, implementation=2, dropout=0.8, recurrent_dropout=0.2, name='bidir_lstm2'))(time_dense)
+    
+    # TODO: Add a TimeDistributed(Dense(output_dim)) layer
+    time_dense2 = TimeDistributed(Dense(output_dim))(bidir_lstm2)
     
     # TODO: Add softmax activation layer
     y_pred = Activation('softmax', name='softmax')(time_dense2)
     # Specify the model
     model = Model(inputs=input_data, outputs=y_pred)
     # TODO: Specify model.output_length
-    model.output_length = ...
+    model.output_length = lambda x: cnn_output_length(
+        x, kernel_size, conv_border_mode, conv_stride)
     print(model.summary())
     return model
